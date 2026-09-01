@@ -1,0 +1,34 @@
+# C build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.elf
+*.bin
+*.hex
+*.map
+*.dSYM/
+build/
+dist/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+compile_commands.json
+secrets.h
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ESP-IDF build output
+sdkconfig.old
+
+# Editor / tooling cache
+.cache/

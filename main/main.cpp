@@ -19,16 +19,9 @@ constexpr const char local_device_name[] = "JANIS_SPEAKER";
 constexpr const char *s_a2d_conn_state_str[] = {"Disconnected", "Connecting", "Connected", "Disconnecting"};
 constexpr const char *s_a2d_audio_state_str[] = {"Suspended", "Started"};
 
-// TODO
-// enum class app_signal : uint8_t {
-//     BT_APP_SIG_WORK_DISPATCH,
-// };
-// enum class app_event: uint8_t {
-//     BT_APP_EVT_STACK_UP,
-// };
-
-enum {
+enum class app_signal : uint8_t {
     BT_APP_SIG_WORK_DISPATCH,
+    BT_APP_SIG_BAD,
 };
 enum {
     BT_APP_EVT_STACK_UP,
@@ -37,52 +30,114 @@ enum {
 uint32_t s_pkt_cnt = 0; 
 QueueHandle_t task_queue = NULL;
 
-// TODO
-// typedef void (* bt_app_cb_t)(app_event event, void *param);
-typedef void (* bt_app_cb_t)(uint16_t event, void *param);
-typedef void (* bt_app_copy_cb_t)(void *p_dest, void *p_src, int len);
-typedef struct {
-    // TODO
-    // app_signal sig;      /*!< signal to bt_app_task */
-    // app_event event;    /*!< message event id */
-    uint16_t sig;
-    uint16_t event;
-    bt_app_cb_t    cb;       /*!< context switch callback */
-    void           *param;   /*!< parameter area needs to be last */
-} bt_app_msg_t;
-
-static void bt_app_work_dispatched(bt_app_msg_t *msg)
+class task 
 {
-    if (msg->cb) {
-        msg->cb(msg->event, msg->param);
+public:
+    explicit task(app_signal signal, uint16_t event)
+        : signal{signal}, event_{event}
+    {}
+    virtual ~task() = default;
+    virtual void execute() = 0;
+
+    app_signal signal{app_signal::BT_APP_SIG_BAD};
+
+protected:
+    uint16_t event_;
+};
+
+template <typename T>
+class bt_app_msg : public task
+{
+public:
+    using callback_t = void(*)(uint16_t event, T* parms);
+
+    explicit bt_app_msg(callback_t cb, T* parms, uint16_t event, app_signal signal) 
+        : task{signal, event}, callback_{cb}
+    {
+        callback_parms_ = new T(*parms);
     }
-}
+
+    ~bt_app_msg() {
+        if (callback_parms_)
+            delete callback_parms_;
+    }
+
+    // todo: add copy assignment operator and move constructor/operator
+    bt_app_msg(const bt_app_msg& other)
+        : callback_{other.callback_}
+    {
+        callback_parms_ = new T(*other.callback_parms_);
+    }
+
+    void execute() override { 
+        ESP_LOGI(BT_APP_CORE_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
+
+        if (callback_) {
+            callback_(event_, callback_parms_); 
+        } else {
+            ESP_LOGE(BT_APP_CORE_TAG, "callback not provided to bt_app_msg");
+        }
+    }
+
+private:
+    callback_t callback_;
+    T* callback_parms_;
+};
+
+template <>
+class bt_app_msg<void> : public task
+{
+public:
+    using callback_t = void(*)(uint16_t event);
+
+    explicit bt_app_msg(callback_t cb, uint16_t event, app_signal signal) 
+        : task{signal, event}, callback_{cb}
+    {
+        ESP_LOGI(BT_APP_CORE_TAG, "templateless bt_app_msg, signal: %d, event: %d", signal, event);
+    }
+
+    void execute() override { 
+        ESP_LOGI(BT_APP_CORE_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
+
+        if (callback_) {
+            callback_(event_); 
+        } else {
+            ESP_LOGE(BT_APP_CORE_TAG, "callback not provided to bt_app_msg");
+        }
+    }
+
+private:
+    callback_t callback_;
+};
 
 static void main_task(void* arg)
 {
     // QueueHandle_t bt_app_task_queue = static_cast<QueueHandle_t>(arg);
-    bt_app_msg_t msg;
+    task* msg = nullptr;
+
+    ESP_LOGI(BT_APP_CORE_TAG, "Supported signals:");
+    ESP_LOGI(BT_APP_CORE_TAG, "BT_APP_SIG_DISPATCH: %d", app_signal::BT_APP_SIG_WORK_DISPATCH);
+    ESP_LOGI(BT_APP_CORE_TAG, "BT_APP_SIG_BAD: %d", app_signal::BT_APP_SIG_BAD);
 
     for (;;) {
-        /* receive message from work queue and handle it */
-        if (pdTRUE == xQueueReceive(task_queue, &msg, (TickType_t)portMAX_DELAY)) {
-            ESP_LOGD(BT_APP_CORE_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, msg.sig, msg.event);
+        if (xQueueReceive(task_queue, &msg, (TickType_t)portMAX_DELAY) == pdTRUE) {
+            if (!msg) {
+                ESP_LOGE(BT_APP_CORE_TAG, "task retrieval succeeded but it is null");
+            }
 
-            switch (msg.sig) {
-            case BT_APP_SIG_WORK_DISPATCH:
-                bt_app_work_dispatched(&msg);
+            switch (msg->signal) {
+            case app_signal::BT_APP_SIG_WORK_DISPATCH:
+                msg->execute();
                 break;
             default:
-                ESP_LOGW(BT_APP_CORE_TAG, "%s, unhandled signal: %d", __func__, msg.sig);
+                ESP_LOGW(BT_APP_CORE_TAG, "%s, unhandled signal: %d", __func__, msg->signal);
                 break;
-            } /* switch (msg.sig) */
-
-            if (msg.param) {
-                free(msg.param);
             }
         }
-    }
 
+        if (msg)
+            delete msg;
+    }
 }
 
 static void bt_app_dev_cb(esp_bt_dev_cb_event_t event, esp_bt_dev_cb_param_t *param)
@@ -166,39 +221,37 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
     }
 }
 
-void bt_a2d_evt_def_hdl(uint16_t event, void *param)
+void bt_a2d_evt_def_hdl(uint16_t event, esp_a2d_cb_param_t* param)
 {
     ESP_LOGD(BT_AV_TAG, "%s event: %d", __func__, event);
-
-    esp_a2d_cb_param_t *a2d = (esp_a2d_cb_param_t *)(param);
 
     switch (event) {
     /* when connection state changed, this event comes */
     case ESP_A2D_CONNECTION_STATE_EVT: {
-        uint8_t *bda = a2d->conn_stat.remote_bda;
+        uint8_t *bda = param->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
-                 s_a2d_conn_state_str[a2d->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
+                 s_a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+        if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-        } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
+        } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
         }
         break;
     }
     /* when audio stream transmission state changed, this event comes */
     case ESP_A2D_AUDIO_STATE_EVT: {
-        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[a2d->audio_stat.state]);
+        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[param->audio_stat.state]);
         break;
     }
     /* when audio codec is configured, this event comes */
     case ESP_A2D_AUDIO_CFG_EVT: {
-        esp_a2d_mcc_t *p_mcc = &a2d->audio_cfg.mcc;
+        esp_a2d_mcc_t *p_mcc = &param->audio_cfg.mcc;
         ESP_LOGI(BT_AV_TAG, "A2DP audio stream configuration, codec type: %d", p_mcc->type);
         break;
     }
     /* when a2dp init or deinit completed, this event comes */
     case ESP_A2D_PROF_STATE_EVT: {
-        if (ESP_A2D_INIT_SUCCESS == a2d->a2d_prof_stat.init_state) {
+        if (ESP_A2D_INIT_SUCCESS == param->a2d_prof_stat.init_state) {
             ESP_LOGI(BT_AV_TAG, "A2DP PROF STATE: Init Complete");
         } else {
             ESP_LOGI(BT_AV_TAG, "A2DP PROF STATE: Deinit Complete");
@@ -207,17 +260,17 @@ void bt_a2d_evt_def_hdl(uint16_t event, void *param)
     }
     /* when using external codec, after sep registration done, this event comes */
     case ESP_A2D_SEP_REG_STATE_EVT: {
-        if (a2d->a2d_sep_reg_stat.reg_state == ESP_A2D_SEP_REG_SUCCESS) {
-            ESP_LOGI(BT_AV_TAG, "A2DP register SEP success, seid: %d", a2d->a2d_sep_reg_stat.seid);
+        if (param->a2d_sep_reg_stat.reg_state == ESP_A2D_SEP_REG_SUCCESS) {
+            ESP_LOGI(BT_AV_TAG, "A2DP register SEP success, seid: %d", param->a2d_sep_reg_stat.seid);
         } else {
-            ESP_LOGI(BT_AV_TAG, "A2DP register SEP fail, seid: %d, state: %d", a2d->a2d_sep_reg_stat.seid, a2d->a2d_sep_reg_stat.reg_state);
+            ESP_LOGI(BT_AV_TAG, "A2DP register SEP fail, seid: %d, state: %d", param->a2d_sep_reg_stat.seid, param->a2d_sep_reg_stat.reg_state);
         }
         break;
     }
     /* When protocol service capabilities configured, this event comes */
     case ESP_A2D_SNK_PSC_CFG_EVT: {
-        ESP_LOGI(BT_AV_TAG, "protocol service capabilities configured: 0x%x ", a2d->a2d_psc_cfg_stat.psc_mask);
-        if (a2d->a2d_psc_cfg_stat.psc_mask & ESP_A2D_PSC_DELAY_RPT) {
+        ESP_LOGI(BT_AV_TAG, "protocol service capabilities configured: 0x%x ", param->a2d_psc_cfg_stat.psc_mask);
+        if (param->a2d_psc_cfg_stat.psc_mask & ESP_A2D_PSC_DELAY_RPT) {
             ESP_LOGI(BT_AV_TAG, "Peer device support delay reporting");
         } else {
             ESP_LOGI(BT_AV_TAG, "Peer device unsupported delay reporting");
@@ -226,18 +279,18 @@ void bt_a2d_evt_def_hdl(uint16_t event, void *param)
     }
     /* when set delay value completed, this event comes */
     case ESP_A2D_SNK_SET_DELAY_VALUE_EVT: {
-        if (ESP_A2D_SET_INVALID_PARAMS == a2d->a2d_set_delay_value_stat.set_state) {
+        if (ESP_A2D_SET_INVALID_PARAMS == param->a2d_set_delay_value_stat.set_state) {
             ESP_LOGI(BT_AV_TAG, "Set delay report value: fail");
         } else {
-            ESP_LOGI(BT_AV_TAG, "Set delay report value: success, delay_value: %u * 1/10 ms", a2d->a2d_set_delay_value_stat.delay_value);
+            ESP_LOGI(BT_AV_TAG, "Set delay report value: success, delay_value: %u * 1/10 ms", param->a2d_set_delay_value_stat.delay_value);
         }
         break;
     }
     /* when get delay value completed, this event comes */
     case ESP_A2D_SNK_GET_DELAY_VALUE_EVT: {
-        ESP_LOGI(BT_AV_TAG, "Get delay report value: delay_value: %u * 1/10 ms", a2d->a2d_get_delay_value_stat.delay_value);
+        ESP_LOGI(BT_AV_TAG, "Get delay report value: delay_value: %u * 1/10 ms", param->a2d_get_delay_value_stat.delay_value);
         /* Default delay value plus delay caused by application layer */
-        esp_a2d_sink_set_delay_value(a2d->a2d_get_delay_value_stat.delay_value + 50);
+        esp_a2d_sink_set_delay_value(param->a2d_get_delay_value_stat.delay_value + 50);
         break;
     }
     /* others */
@@ -247,39 +300,37 @@ void bt_a2d_evt_def_hdl(uint16_t event, void *param)
     }
 }
 
-void bt_a2d_evt_int_codec_hdl(uint16_t event, void *param)
+void bt_a2d_evt_int_codec_hdl(uint16_t event, esp_a2d_cb_param_t* param)
 {
-    esp_a2d_cb_param_t *a2d = (esp_a2d_cb_param_t *)(param);
-
     switch (event) {
     /* when connection state changed, this event comes */
     case ESP_A2D_CONNECTION_STATE_EVT: {
-        uint8_t *bda = a2d->conn_stat.remote_bda;
+        uint8_t *bda = param->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
-                 s_a2d_conn_state_str[a2d->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
+                 s_a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+        if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
             // audio_sink_srv_stop();
             // audio_sink_srv_close();
-        } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
+        } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
             // audio_sink_srv_start();
-        } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
+        } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTING) {
             // audio_sink_srv_open();
         }
         break;
     }
     /* when audio stream transmission state changed, this event comes */
     case ESP_A2D_AUDIO_STATE_EVT: {
-        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[a2d->audio_stat.state]);
-        if (ESP_A2D_AUDIO_STATE_STARTED == a2d->audio_stat.state) {
+        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[param->audio_stat.state]);
+        if (ESP_A2D_AUDIO_STATE_STARTED == param->audio_stat.state) {
             s_pkt_cnt = 0;
         }
         break;
     }
     /* when audio codec is configured, this event comes */
     case ESP_A2D_AUDIO_CFG_EVT: {
-        // audio_sink_srv_codec_info_update(&a2d->audio_cfg.mcc);
+        // audio_sink_srv_codec_info_update(param->audio_cfg.mcc);
         break;
     }
     /* others */
@@ -289,62 +340,39 @@ void bt_a2d_evt_int_codec_hdl(uint16_t event, void *param)
     }
 }
 
-static bool bt_app_send_msg(bt_app_msg_t *msg)
+static bool bt_app_send_msg(task* msg)
 {
-    if (msg == NULL) {
-        return false;
-    }
-
-    /* send the message to work queue */
-    if (xQueueSend(task_queue, msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
+    if (xQueueSend(task_queue, &msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
         ESP_LOGE(BT_APP_CORE_TAG, "%s xQueue send failed", __func__);
         return false;
     }
+
     return true;
 }
 
-bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len, bt_app_copy_cb_t p_copy_cback)
+static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
 {
-    ESP_LOGD(BT_APP_CORE_TAG, "%s event: 0x%x, param len: %d", __func__, event, param_len);
+    auto ev = static_cast<uint16_t>(event);
 
-    bt_app_msg_t msg;
-    memset(&msg, 0, sizeof(bt_app_msg_t));
-
-    msg.sig = BT_APP_SIG_WORK_DISPATCH;
-    msg.event = event;
-    msg.cb = p_cback;
-
-    if (param_len == 0) {
-        return bt_app_send_msg(&msg);
-    } else if (p_params && param_len > 0) {
-        if ((msg.param = malloc(param_len)) != NULL) {
-            memcpy(msg.param, p_params, param_len);
-            /* check if caller has provided a copy callback to do the deep copy */
-            if (p_copy_cback) {
-                p_copy_cback(msg.param, p_params, param_len);
-            }
-            return bt_app_send_msg(&msg);
-        }
-    }
-
-    return false;
-}
-
-static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
-{
     switch (event) {
     case ESP_A2D_PROF_STATE_EVT:
     case ESP_A2D_SNK_PSC_CFG_EVT:
     case ESP_A2D_SNK_SET_DELAY_VALUE_EVT:
     case ESP_A2D_SNK_GET_DELAY_VALUE_EVT: {
-        bt_app_work_dispatch(bt_a2d_evt_def_hdl, event, param, sizeof(esp_a2d_cb_param_t), NULL);
+        // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
+        // bt_app_send_msg(message);
+        auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
+        bt_app_send_msg(t);
         break;
     }
     case ESP_A2D_CONNECTION_STATE_EVT:
     case ESP_A2D_AUDIO_STATE_EVT:
     case ESP_A2D_AUDIO_CFG_EVT:
     case ESP_A2D_SEP_REG_STATE_EVT: {
-        bt_app_work_dispatch(bt_a2d_evt_int_codec_hdl, event, param, sizeof(esp_a2d_cb_param_t), NULL);
+        // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
+        // bt_app_send_msg(message);
+        auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
+        bt_app_send_msg(t);
         break;
     }
     default:
@@ -365,7 +393,7 @@ static void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 
 // TODO
 // static void bt_av_hdl_stack_evt(app_event event, void *p_param)
-static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
+static void bt_av_hdl_stack_evt(uint16_t event)
 {
     ESP_LOGD(BT_AV_TAG, "%s event: %d", __func__, event);
 
@@ -412,6 +440,7 @@ static char *bda2str(uint8_t * bda, char *str, size_t size)
 esp_err_t bredr_app_common_init(void)
 {
     char bda_str[18] = {0};
+
     /* initialize NVS — it is used to store PHY calibration data */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -464,9 +493,11 @@ extern "C" void app_main()
 {
     ESP_ERROR_CHECK(bredr_app_common_init());
 
-    task_queue = xQueueCreate(10, sizeof(bt_app_msg_t));
+    task_queue = xQueueCreate(10, sizeof(task*));
     TaskHandle_t task_handle = NULL;
     xTaskCreate(main_task, "BtAppTask", 3072, NULL, 10, &task_handle);
 
-    bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
+    // bt_app_msg<void> t{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
+    auto* t = new bt_app_msg<void>{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
+    bt_app_send_msg(t);
 }

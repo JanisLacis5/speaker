@@ -15,42 +15,15 @@
 
 #include "task_handler.hpp"
 
+namespace {
 constexpr const char BT_APP_CORE_TAG[] = "BT_APP_CORE";
 constexpr const char BT_AV_TAG[] = "BT_AV";
 constexpr const char local_device_name[] = "JANIS_SPEAKER";
-constexpr const char *s_a2d_conn_state_str[] = {"Disconnected", "Connecting", "Connected", "Disconnecting"};
-constexpr const char *s_a2d_audio_state_str[] = {"Suspended", "Started"};
+constexpr const char* a2d_conn_state_str[] = {"Disconnected", "Connecting", "Connected", "Disconnecting"};
+constexpr const char* a2d_audio_state_str[] = {"Suspended", "Started"};
 
-uint32_t s_pkt_cnt = 0; 
-QueueHandle_t task_queue = NULL;
-static void main_task(void* arg)
-{
-    // QueueHandle_t bt_app_task_queue = static_cast<QueueHandle_t>(arg);
-    task* msg = nullptr;
-
-    ESP_LOGI(BT_APP_CORE_TAG, "Supported signals:");
-    ESP_LOGI(BT_APP_CORE_TAG, "BT_APP_SIG_DISPATCH: %d", app_signal::BT_APP_SIG_WORK_DISPATCH);
-    ESP_LOGI(BT_APP_CORE_TAG, "BT_APP_SIG_BAD: %d", app_signal::BT_APP_SIG_BAD);
-
-    for (;;) {
-        if (xQueueReceive(task_queue, &msg, (TickType_t)portMAX_DELAY) == pdTRUE) {
-            if (!msg) {
-                ESP_LOGE(BT_APP_CORE_TAG, "task retrieval succeeded but it is null");
-            }
-
-            switch (msg->signal) {
-            case app_signal::BT_APP_SIG_WORK_DISPATCH:
-                msg->execute();
-                break;
-            default:
-                ESP_LOGW(BT_APP_CORE_TAG, "%s, unhandled signal: %d", __func__, msg->signal);
-                break;
-            }
-        }
-
-        if (msg)
-            delete msg;
-    }
+task_handler th;
+uint32_t pkt_cnt = 0; 
 }
 
 static void bt_app_dev_cb(esp_bt_dev_cb_event_t event, esp_bt_dev_cb_param_t *param)
@@ -73,7 +46,7 @@ static void bt_app_dev_cb(esp_bt_dev_cb_event_t event, esp_bt_dev_cb_param_t *pa
 
 static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
-    uint8_t *bda = NULL;
+    uint8_t* bda = NULL;
 
     switch (event) {
     /* when authentication completed, this event comes */
@@ -143,7 +116,7 @@ void bt_a2d_evt_def_hdl(uint16_t event, esp_a2d_cb_param_t* param)
     case ESP_A2D_CONNECTION_STATE_EVT: {
         uint8_t *bda = param->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
-                 s_a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+                 a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
         if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
         } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
@@ -153,7 +126,7 @@ void bt_a2d_evt_def_hdl(uint16_t event, esp_a2d_cb_param_t* param)
     }
     /* when audio stream transmission state changed, this event comes */
     case ESP_A2D_AUDIO_STATE_EVT: {
-        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[param->audio_stat.state]);
+        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", a2d_audio_state_str[param->audio_stat.state]);
         break;
     }
     /* when audio codec is configured, this event comes */
@@ -220,7 +193,7 @@ void bt_a2d_evt_int_codec_hdl(uint16_t event, esp_a2d_cb_param_t* param)
     case ESP_A2D_CONNECTION_STATE_EVT: {
         uint8_t *bda = param->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
-                 s_a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+                 a2d_conn_state_str[param->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
         if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
             // audio_sink_srv_stop();
@@ -235,9 +208,9 @@ void bt_a2d_evt_int_codec_hdl(uint16_t event, esp_a2d_cb_param_t* param)
     }
     /* when audio stream transmission state changed, this event comes */
     case ESP_A2D_AUDIO_STATE_EVT: {
-        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", s_a2d_audio_state_str[param->audio_stat.state]);
+        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", a2d_audio_state_str[param->audio_stat.state]);
         if (ESP_A2D_AUDIO_STATE_STARTED == param->audio_stat.state) {
-            s_pkt_cnt = 0;
+            pkt_cnt = 0;
         }
         break;
     }
@@ -253,16 +226,6 @@ void bt_a2d_evt_int_codec_hdl(uint16_t event, esp_a2d_cb_param_t* param)
     }
 }
 
-static bool bt_app_send_msg(task* msg)
-{
-    if (xQueueSend(task_queue, &msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
-        ESP_LOGE(BT_APP_CORE_TAG, "%s xQueue send failed", __func__);
-        return false;
-    }
-
-    return true;
-}
-
 static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
 {
     auto ev = static_cast<uint16_t>(event);
@@ -275,7 +238,7 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
         // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
         // bt_app_send_msg(message);
         auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        bt_app_send_msg(t);
+        th.add_task(t);
         break;
     }
     case ESP_A2D_CONNECTION_STATE_EVT:
@@ -285,7 +248,7 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
         // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
         // bt_app_send_msg(message);
         auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        bt_app_send_msg(t);
+        th.add_task(t);
         break;
     }
     default:
@@ -294,24 +257,18 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
     }
 }
 
-static void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
+static void bt_app_a2d_data_cb(const uint8_t* data, uint32_t len)
 {
     // audio_sink_srv_data_output(data, len);
 
-    /* log the number every 100 packets */
-    if (++s_pkt_cnt % 100 == 0) {
-        ESP_LOGI(BT_AV_TAG, "Audio packet count: %" PRIu32, s_pkt_cnt);
-    }
+    if (++pkt_cnt % 100 == 0)
+        ESP_LOGI(BT_AV_TAG, "Audio packet count: %" PRIu32, pkt_cnt);
 }
 
-// TODO
-// static void bt_av_hdl_stack_evt(app_event event, void *p_param)
 static void bt_av_hdl_stack_evt(uint16_t event)
 {
     ESP_LOGD(BT_AV_TAG, "%s event: %d", __func__, event);
 
-    // TODO
-    // if (event == app_event::BT_APP_EVT_STACK_UP) {
     if (event == BT_APP_EVT_STACK_UP) {
         esp_bt_gap_set_device_name(local_device_name);
         esp_bt_dev_register_callback(bt_app_dev_cb);
@@ -325,26 +282,20 @@ static void bt_av_hdl_stack_evt(uint16_t event)
         assert(err == ESP_OK);
 
         esp_a2d_sink_register_data_callback(bt_app_a2d_data_cb);
-
-        /* Get the default value of the delay value */
         esp_a2d_sink_get_delay_value();
-        /* Get local device name */
         esp_bt_gap_get_device_name();
-
-        /* set discoverable and connectable mode, wait to be connected */
         esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     } else {
         ESP_LOGE(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
     }
 }
 
-static char *bda2str(uint8_t * bda, char *str, size_t size)
+static char* bda2str(uint8_t* bda, char* str, size_t size)
 {
-    if (bda == NULL || str == NULL || size < 18) {
+    if (bda == NULL || str == NULL || size < 18)
         return NULL;
-    }
 
-    uint8_t *p = bda;
+    uint8_t* p = bda;
     sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
             p[0], p[1], p[2], p[3], p[4], p[5]);
     return str;
@@ -354,7 +305,6 @@ esp_err_t bredr_app_common_init(void)
 {
     char bda_str[18] = {0};
 
-    /* initialize NVS — it is used to store PHY calibration data */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -405,12 +355,9 @@ esp_err_t bredr_app_common_init(void)
 extern "C" void app_main()
 {
     ESP_ERROR_CHECK(bredr_app_common_init());
-
-    task_queue = xQueueCreate(10, sizeof(task*));
-    TaskHandle_t task_handle = NULL;
-    xTaskCreate(main_task, "BtAppTask", 3072, NULL, 10, &task_handle);
+    th.init();
 
     // bt_app_msg<void> t{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
     auto* t = new bt_app_msg<void>{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
-    bt_app_send_msg(t);
+    th.add_task(t);
 }

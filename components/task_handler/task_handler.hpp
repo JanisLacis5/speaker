@@ -3,7 +3,12 @@
 
 #include <cstdint>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+
 #include "esp_log.h"
+
+static const char* TH_TAG = "TASK_HANDLER";
 
 enum class app_signal : uint8_t {
     BT_APP_SIG_WORK_DISPATCH,
@@ -54,12 +59,12 @@ public:
     }
 
     void execute() override { 
-        ESP_LOGI("TASK_HANDLER", "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
+        ESP_LOGI(TH_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
 
         if (callback_) {
             callback_(event_, callback_parms_); 
         } else {
-            ESP_LOGE("TASK_HANDLER", "callback not provided to bt_app_msg");
+            ESP_LOGE(TH_TAG, "callback not provided to bt_app_msg");
         }
     }
 
@@ -77,21 +82,35 @@ public:
     explicit bt_app_msg(callback_t cb, uint16_t event, app_signal signal) 
         : task{signal, event}, callback_{cb}
     {
-        ESP_LOGI("TASK_HANDLER", "templateless bt_app_msg, signal: %d, event: %d", signal, event);
+        ESP_LOGI(TH_TAG, "templateless bt_app_msg, signal: %d, event: %d", signal, event);
     }
 
     void execute() override { 
-        ESP_LOGI("TASK_HANDLER", "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
+        ESP_LOGI(TH_TAG, "%s, signal: 0x%x, event: 0x%x", __func__, signal, event_);
 
         if (callback_) {
             callback_(event_); 
         } else {
-            ESP_LOGE("TASK_HANDLER", "callback not provided to bt_app_msg");
+            ESP_LOGE(TH_TAG, "callback not provided to bt_app_msg");
         }
     }
 
 private:
     callback_t callback_;
+};
+
+class task_handler 
+{
+public:
+    ~task_handler();
+    bool add_task(const task* task);
+    void init();
+
+private:
+    static void main_task(void* arg);
+
+    QueueHandle_t task_queue_;
+    TaskHandle_t task_handle_;
 };
 
 #endif

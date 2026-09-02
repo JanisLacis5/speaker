@@ -2,7 +2,7 @@
 
 void task_handler::init() {
     task_queue_ = xQueueCreate(10, sizeof(task*));
-    xTaskCreate(main_task, "BtAppTask", 3072, &task_queue_, 10, &task_handle_);
+    xTaskCreate(main_task, "BtAppTask", 3072, this, 10, &task_handle_);
 }
 
 task_handler::~task_handler() {
@@ -10,7 +10,7 @@ task_handler::~task_handler() {
 }
 
 void task_handler::main_task(void* arg) {
-    auto* task_queue = static_cast<QueueHandle_t*>(arg);
+    auto* self = static_cast<task_handler*>(arg);
     task* task = nullptr;
 
     ESP_LOGI(TH_TAG, "Supported signals:");
@@ -18,7 +18,7 @@ void task_handler::main_task(void* arg) {
     ESP_LOGI(TH_TAG, "BT_APP_SIG_BAD: %d", app_signal::BT_APP_SIG_BAD);
 
     for (;;) {
-        if (xQueueReceive(*task_queue, &task, (TickType_t)portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(self->task_queue_, &task, (TickType_t)portMAX_DELAY) == pdTRUE) {
             if (!task) {
                 ESP_LOGE(TH_TAG, "task retrieval succeeded but it is null");
                 continue;
@@ -32,18 +32,18 @@ void task_handler::main_task(void* arg) {
                 ESP_LOGW(TH_TAG, "%s, unhandled signal: %d", __func__, task->signal);
                 break;
             }
-        }
 
-        if (task)
-            delete task;
+            self->remove_task(task);
+        }
     }
 }
 
-bool task_handler::add_task(const task* task) {
-    if (xQueueSend(task_queue_, &task, 10 / portTICK_PERIOD_MS) != pdTRUE) {
-        ESP_LOGE(TH_TAG, "%s xQueue send failed", __func__);
-        return false;
-    }
+void task_handler::remove_task(const task* task) {
+    auto free_slot_iter = std::find_if(task_slots.begin(), task_slots.end(), [&task](auto& slot) { return slot.ptr == task; });
+    if (free_slot_iter == task_slots.end())
+        return;
 
-    return true;
+    free_slot_iter->occupied = false;
+    free_slot_iter->ptr->~task();
+    free_slot_iter->ptr = nullptr;
 }

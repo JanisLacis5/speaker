@@ -99,7 +99,6 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_ACL_DISC_CMPL_STAT_EVT Disconnected from [%02x:%02x:%02x:%02x:%02x:%02x], reason: 0x%x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->acl_disconn_cmpl_stat.reason);
         break;
-    /* others */
     default: {
         ESP_LOGI(BT_APP_CORE_TAG, "event: %d", event);
         break;
@@ -179,7 +178,6 @@ void bt_a2d_evt_def_hdl(uint16_t event, esp_a2d_cb_param_t* param)
         esp_a2d_sink_set_delay_value(param->a2d_get_delay_value_stat.delay_value + 50);
         break;
     }
-    /* others */
     default:
         ESP_LOGE(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
         break;
@@ -219,7 +217,6 @@ void bt_a2d_evt_int_codec_hdl(uint16_t event, esp_a2d_cb_param_t* param)
         // audio_sink_srv_codec_info_update(param->audio_cfg.mcc);
         break;
     }
-    /* others */
     default:
         ESP_LOGE(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
         break;
@@ -235,20 +232,14 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t* param)
     case ESP_A2D_SNK_PSC_CFG_EVT:
     case ESP_A2D_SNK_SET_DELAY_VALUE_EVT:
     case ESP_A2D_SNK_GET_DELAY_VALUE_EVT: {
-        // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        // bt_app_send_msg(message);
-        auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        th.add_task(t);
+        th.add_task<bt_app_msg<esp_a2d_cb_param_t>>(bt_a2d_evt_def_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH);
         break;
     }
     case ESP_A2D_CONNECTION_STATE_EVT:
     case ESP_A2D_AUDIO_STATE_EVT:
     case ESP_A2D_AUDIO_CFG_EVT:
     case ESP_A2D_SEP_REG_STATE_EVT: {
-        // bt_app_msg<esp_a2d_cb_param_t> message{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        // bt_app_send_msg(message);
-        auto* t = new bt_app_msg<esp_a2d_cb_param_t>{bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH};
-        th.add_task(t);
+        th.add_task<bt_app_msg<esp_a2d_cb_param_t>>(bt_a2d_evt_int_codec_hdl, param, ev, app_signal::BT_APP_SIG_WORK_DISPATCH);
         break;
     }
     default:
@@ -357,7 +348,5 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(bredr_app_common_init());
     th.init();
 
-    // bt_app_msg<void> t{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
-    auto* t = new bt_app_msg<void>{bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH};
-    th.add_task(t);
+    th.add_task<bt_app_msg<void>>(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, app_signal::BT_APP_SIG_WORK_DISPATCH);
 }

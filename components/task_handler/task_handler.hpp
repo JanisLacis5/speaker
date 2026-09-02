@@ -2,6 +2,9 @@
 #define TASK_HANDLER_H
 
 #include <cstdint>
+#include <cstddef>
+#include <array>
+#include <algorithm>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -99,11 +102,32 @@ private:
     callback_t callback_;
 };
 
+// TODO: freeRTOS is executing tasks concurrently, on add/remove task syncronization is needed
 class task_handler 
 {
 public:
     ~task_handler();
-    bool add_task(const task* task);
+
+    template<typename T, typename ... Args>
+    task* add_task(Args... args) {
+        auto free_slot_iter = std::find_if(task_slots.begin(), task_slots.end(), [](auto& slot) { return !slot.occupied; });
+        if (free_slot_iter == task_slots.end())
+            return nullptr;
+
+        auto* ptr = new (free_slot_iter->storage) T(args...);
+        free_slot_iter->ptr = ptr;
+        free_slot_iter->occupied = true;
+
+        if (xQueueSend(task_queue_, &ptr, 10 / portTICK_PERIOD_MS) != pdTRUE) {
+            ESP_LOGE(TH_TAG, "%s xQueue send failed", __func__);
+            remove_task(ptr);
+            return nullptr;
+        }
+        return ptr;
+    }
+
+    void remove_task(const task* task);
+
     void init();
 
 private:
@@ -111,6 +135,18 @@ private:
 
     QueueHandle_t task_queue_;
     TaskHandle_t task_handle_;
+
+    struct task_slot {
+        static constexpr size_t size = 128;
+
+        alignas(std::max_align_t) std::byte storage[size];
+
+        task* ptr = nullptr;
+        bool occupied = false;
+    };
+
+    std::array<task_slot, 16> task_slots;
 };
 
 #endif
+

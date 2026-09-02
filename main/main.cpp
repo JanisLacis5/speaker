@@ -446,13 +446,13 @@ esp_err_t bredr_app_common_init(void)
     esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_IO;
     esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t));
 
-    /* set default parameters for Legacy Pairing (use fixed pin code 1234) */
+    /* set default parameters for Legacy Pairing (use fixed pin code 2468) */
     esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_FIXED;
     esp_bt_pin_code_t pin_code;
-    pin_code[0] = '1';
-    pin_code[1] = '2';
-    pin_code[2] = '3';
-    pin_code[3] = '4';
+    pin_code[0] = '2';
+    pin_code[1] = '4';
+    pin_code[2] = '6';
+    pin_code[3] = '8';
     esp_bt_gap_set_pin(pin_type, 4, pin_code);
 
     ESP_LOGI("BT_BREDR", "Own address:[%s]", bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str, sizeof(bda_str)));

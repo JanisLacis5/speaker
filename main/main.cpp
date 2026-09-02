@@ -90,14 +90,14 @@ static void bt_app_dev_cb(esp_bt_dev_cb_event_t event, esp_bt_dev_cb_param_t *pa
     switch (event) {
     case ESP_BT_DEV_NAME_RES_EVT: {
         if (param->name_res.status == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI("janis", "Get local device name success: %s", param->name_res.name);
+            ESP_LOGI(BT_APP_CORE_TAG, "Get local device name success: %s", param->name_res.name);
         } else {
-            ESP_LOGE("janis", "Get local device name failed, status: %d", param->name_res.status);
+            ESP_LOGE(BT_APP_CORE_TAG, "Get local device name failed, status: %d", param->name_res.status);
         }
         break;
     }
     default: {
-        ESP_LOGI("janis", "event: %d", event);
+        ESP_LOGI(BT_APP_CORE_TAG, "event: %d", event);
         break;
     }
     }
@@ -111,56 +111,56 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
     /* when authentication completed, this event comes */
     case ESP_BT_GAP_AUTH_CMPL_EVT: {
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI("janis", "authentication success: %s", param->auth_cmpl.device_name);
-            ESP_LOG_BUFFER_HEX("janis", param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
+            ESP_LOGI(BT_APP_CORE_TAG, "authentication success: %s", param->auth_cmpl.device_name);
+            ESP_LOG_BUFFER_HEX(BT_APP_CORE_TAG, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
         } else {
-            ESP_LOGE("janis", "authentication failed, status: %d", param->auth_cmpl.stat);
+            ESP_LOGE(BT_APP_CORE_TAG, "authentication failed, status: %d", param->auth_cmpl.stat);
         }
-        ESP_LOGI("janis", "link key type of current link is: %d", param->auth_cmpl.lk_type);
+        ESP_LOGI(BT_APP_CORE_TAG, "link key type of current link is: %d", param->auth_cmpl.lk_type);
         break;
     }
     case ESP_BT_GAP_ENC_CHG_EVT: {
         const char *str_enc[3] = {"OFF", "E0", "AES"};
         bda = (uint8_t *)param->enc_chg.bda;
-        ESP_LOGI("janis", "Encryption mode to [%02x:%02x:%02x:%02x:%02x:%02x] changed to %s",
+        ESP_LOGI(BT_APP_CORE_TAG, "Encryption mode to [%02x:%02x:%02x:%02x:%02x:%02x] changed to %s",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], str_enc[param->enc_chg.enc_mode]);
         break;
     }
 
     /* when Security Simple Pairing user confirmation requested, this event comes */
     case ESP_BT_GAP_CFM_REQ_EVT:
-        ESP_LOGI("janis", "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %06" PRIu32, param->cfm_req.num_val);
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %06" PRIu32, param->cfm_req.num_val);
         esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
         break;
     /* when Security Simple Pairing passkey notified, this event comes */
     case ESP_BT_GAP_KEY_NOTIF_EVT:
-        ESP_LOGI("janis", "ESP_BT_GAP_KEY_NOTIF_EVT passkey: %06" PRIu32, param->key_notif.passkey);
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_KEY_NOTIF_EVT passkey: %06" PRIu32, param->key_notif.passkey);
         break;
     /* when Security Simple Pairing passkey requested, this event comes */
     case ESP_BT_GAP_KEY_REQ_EVT:
-        ESP_LOGI("janis", "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
         break;
 
     /* when GAP mode changed, this event comes */
     case ESP_BT_GAP_MODE_CHG_EVT:
-        ESP_LOGI("janis", "ESP_BT_GAP_MODE_CHG_EVT mode: %d, interval: %.2f ms",
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_MODE_CHG_EVT mode: %d, interval: %.2f ms",
                  param->mode_chg.mode, param->mode_chg.interval * 0.625);
         break;
     /* when ACL connection completed, this event comes */
     case ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT:
         bda = (uint8_t *)param->acl_conn_cmpl_stat.bda;
-        ESP_LOGI("janis", "ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT Connected to [%02x:%02x:%02x:%02x:%02x:%02x], status: 0x%x",
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT Connected to [%02x:%02x:%02x:%02x:%02x:%02x], status: 0x%x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->acl_conn_cmpl_stat.stat);
         break;
     /* when ACL disconnection completed, this event comes */
     case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
         bda = (uint8_t *)param->acl_disconn_cmpl_stat.bda;
-        ESP_LOGI("janis", "ESP_BT_GAP_ACL_DISC_CMPL_STAT_EVT Disconnected from [%02x:%02x:%02x:%02x:%02x:%02x], reason: 0x%x",
+        ESP_LOGI(BT_APP_CORE_TAG, "ESP_BT_GAP_ACL_DISC_CMPL_STAT_EVT Disconnected from [%02x:%02x:%02x:%02x:%02x:%02x], reason: 0x%x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->acl_disconn_cmpl_stat.reason);
         break;
     /* others */
     default: {
-        ESP_LOGI("janis", "event: %d", event);
+        ESP_LOGI(BT_APP_CORE_TAG, "event: %d", event);
         break;
     }
     }
@@ -422,22 +422,22 @@ esp_err_t bredr_app_common_init(void)
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     if ((err = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
-        ESP_LOGE("janisbbb", "%s initialize controller failed: %s", __func__, esp_err_to_name(err));
+        ESP_LOGE("BT_BREDR", "%s initialize controller failed: %s", __func__, esp_err_to_name(err));
         return err;
     }
     if ((err = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
-        ESP_LOGE("janisbbb", "%s enable controller failed: %s", __func__, esp_err_to_name(err));
+        ESP_LOGE("BT_BREDR", "%s enable controller failed: %s", __func__, esp_err_to_name(err));
         return err;
     }
 
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     if ((err = esp_bluedroid_init_with_cfg(&bluedroid_cfg)) != ESP_OK) {
-        ESP_LOGE("janisbbb", "%s initialize bluedroid failed: %s", __func__, esp_err_to_name(err));
+        ESP_LOGE("BT_BREDR", "%s initialize bluedroid failed: %s", __func__, esp_err_to_name(err));
         return err;
     }
 
     if ((err = esp_bluedroid_enable()) != ESP_OK) {
-        ESP_LOGE("janisbbb", "%s enable bluedroid failed: %s", __func__, esp_err_to_name(err));
+        ESP_LOGE("BT_BREDR", "%s enable bluedroid failed: %s", __func__, esp_err_to_name(err));
         return err;
     }
 
@@ -455,7 +455,7 @@ esp_err_t bredr_app_common_init(void)
     pin_code[3] = '4';
     esp_bt_gap_set_pin(pin_type, 4, pin_code);
 
-    ESP_LOGI("janisbbb", "Own address:[%s]", bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str, sizeof(bda_str)));
+    ESP_LOGI("BT_BREDR", "Own address:[%s]", bda2str((uint8_t *)esp_bt_dev_get_address(), bda_str, sizeof(bda_str)));
 
     return ESP_OK;
 }

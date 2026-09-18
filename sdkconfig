@@ -1411,6 +1411,17 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
 # end of ESP-Driver:GPIO Configurations
 
 #
+# ESP-Driver:I2S Configurations
+#
+# default:
+# CONFIG_I2S_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_I2S_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_I2S_ENABLE_DEBUG_LOG is not set
+# end of ESP-Driver:I2S Configurations
+
+#
 # ESP-Driver:SPI Configurations
 #
 # default:

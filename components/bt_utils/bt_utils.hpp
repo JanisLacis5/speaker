@@ -7,6 +7,7 @@
 #include "esp_a2dp_api.h"
 
 #include "task_handler.hpp"
+#include "audio_sink.hpp"
 
 class bt_utils 
 {
@@ -24,6 +25,7 @@ public:
     esp_err_t bredr_app_common_init();
     static void bt_av_hdl_stack_evt(std::uint16_t event);
 private:
+    audio_sink audio{};
     task_handler& th_;
     std::uint32_t pkt_cnt_{0}; 
 

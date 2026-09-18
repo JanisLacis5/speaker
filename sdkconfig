@@ -706,6 +706,17 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Monitor ESP Configuration
+#
+# default:
+CONFIG_I2S_LRCK_PIN=25
+# default:
+CONFIG_I2S_BCK_PIN=27
+# default:
+CONFIG_I2S_DATA_PIN=26
+# end of Monitor ESP Configuration
+
+#
 # Compiler options
 #
 # default:
